@@ -61,6 +61,7 @@ from utils.logger import log
 import asyncio
 import aiohttp
 from aiohttp_proxy import ProxyConnector, ProxyType
+from http.cookies import SimpleCookie
 
 if platform.system() == "Windows":
     policy = asyncio.WindowsSelectorEventLoopPolicy()
@@ -218,6 +219,118 @@ class AmazonMonitor(aiohttp.ClientSession):
         log.debug("Sesssion Created")
         return session
 
+    def check_json_response_item_added(self, response_text):
+        items = []
+        try:
+            json_resp = json.loads(response_text)
+            items = json_resp.get("items")
+            return True, items
+        except:
+            return False, items
+
+    async def json_monitor(self, queue: asyncio.Queue, future: asyncio.Future):
+        log.debug(f"JSON Monitoring Task Started for asin {self.item.id} offer_id {self.item.offering_id} on {self.connector.proxy_url}")
+       
+        status, cookies = await self.aio_get_cookies("https://www.amazon.com/gp/overlay/display.html")
+
+        cookie_list = SimpleCookie(cookies)
+        session_id = cookie_list["session-id"].value
+
+        json_payload = {
+            "session-id": f"{session_id}",
+            "clientName": "retailwebsite",
+            "nextPage": "cartitems",
+            "ASIN": f"{self.item.id}",
+            "offerListingID": f"{self.item.offering_id}",
+            "quantity": "1",
+        }
+
+        log.debug(f"add-to-cart with arg {json_payload} for proxy {self.connector.proxy_url}")
+
+        f = furl("https://www.amazon.com/gp/add-to-cart/json", args=json_payload)
+
+        fail_counter = 0  # Count sequential get fails
+        delay = self.delay
+        
+        status, response_text = await self.aio_get(f.url)
+        if status == 200:
+            log.debug(f"ASIN {self.item.id} returned HTML status {status} using proxy {self.connector.proxy_url}")
+        elif status == 999:
+            log.warning(f"ASIN {self.item.id} returned HTML status {status} using proxy {self.connector.proxy_url}")
+        else:
+            log.error(f"ASIN {self.item.id} returned HTML status {status} using proxy {self.connector.proxy_url}")
+            save_html_response("add-to-cart", status, response_text)
+
+            # do this after each request
+        fail_counter = check_fail(status=status, fail_counter=fail_counter)
+        if fail_counter == -1:
+            session = self.fail_recreate()
+            future.set_result(session)
+            return
+
+        checked_out_count = 0
+        captcha_count = 0
+
+        # Loop will only exit if a qualified seller is returned.
+        while True:
+            success, available_items = self.check_json_response_item_added(response_text)
+            if success == False:
+                tree = check_response(response_text)
+                if tree is not None:
+                    if captcha_element := has_captcha(tree):
+                        captcha_count += 1
+                        log.warning(f"Captcha count {captcha_count} for monitoring task for {self.connector.proxy_url}")
+                        # wait a second so it doesn't continuously hit captchas very quickly
+                        # TODO: maybe track captcha hits so that it aborts after several?
+                        await asyncio.sleep(1)
+                        # get the next response after solving captcha and then continue to next loop iteration
+                        status, response_text = await self.async_captcha_solve(
+                            captcha_element[0], "https://www.amazon.com/gp/add-to-cart"
+                        )
+
+                        # do this after each request
+                        fail_counter = check_fail(status=status, fail_counter=fail_counter)
+                        if fail_counter == -1 or captcha_count > 3:
+                            future.set_result(None)
+                            return None
+                        await asyncio.sleep(5)
+                        continue
+                else:
+                    captcha_count = 0
+
+            if len(available_items) > 0:
+                log.error(f"Items available: {available_items}")
+                save_html_response("added-to-cart", status, response_text)
+
+                dummy_seller = SellerDetail("dummy",
+                                0,0,AmazonItemCondition.New,
+                                self.item.offering_id,
+                                atc_form=[])
+
+                await queue.put(dummy_seller)
+                log.error(f"Offer for {self.item.id} placed in queue")
+                future.set_result(None)
+                return None
+
+            log.debug("No offer found")
+            await asyncio.sleep(delay)
+            status, response_text = await self.aio_get(f.url)
+
+            if status == 200:
+                pass
+                #log.debug(f"HTML status {status} using proxy {self.connector.proxy_url}")
+            elif status == 999:
+                log.warning(f"HTML status {status} using proxy {self.connector.proxy_url}")
+            else:
+                log.error(f"HTML status {status} using proxy {self.connector.proxy_url}")
+
+            # do this after each request
+            fail_counter = check_fail(status=status, fail_counter=fail_counter)
+            if fail_counter == -1:
+                session = self.fail_recreate()
+                future.set_result(session)
+                return
+
     async def stock_check(self, queue: asyncio.Queue, future: asyncio.Future):
         # Do first response outside of while loop, so we can continue on captcha checks
         # and return to start of while loop with that response. Requires the next response
@@ -228,7 +341,7 @@ class AmazonMonitor(aiohttp.ClientSession):
         delay = self.delay
         end_time = time.time() + delay
         status, response_text = await self.aio_get(url=self.item.furl.url)
-
+        
         save_html_response("stock-check", status, response_text)
 
         # do this after each request
@@ -300,6 +413,17 @@ class AmazonMonitor(aiohttp.ClientSession):
                 return
 
             check_count += 1
+    
+    async def aio_get_cookies(self, url):
+        cookies = None
+        try:
+            async with self.get(url) as resp:
+                status = resp.status
+                cookies = resp.cookies
+        except (aiohttp.ClientError, OSError) as e:
+            log.debug(e)
+            status = 999
+        return status, cookies
 
     async def aio_get(self, url):
         text = None

@@ -1,18 +1,16 @@
 {
   "items": [
     {
-      "asins": ["B08WT47L8B", "B07MFBLN7K", "B07MBQPQ62", "B0088PUEPK"],
-      "min-price": 500,
-      "max-price": 600,
-      "condition": "New",
-      "merchant_id": "amazon"
+      "asins": ["B076KLJR2Y"],
+      "offering_id": "OldVTnsi9oY9YwPJK2ikxEQZJovDPfoxxmmgzZ1jW5MjsF3%2BagNxP03N5PcUGFgJ81OnQde0ltsxFbnF4NCZUq9jN7z9lIlzRfyaFSYwBd0Yb3Zubqr2P7eUjbf6JuR1cucGrLLsHadIE2X4PZ%2FvcVNgke78KtYg425a5H4cJ7MR5X0FdDREZ%2BQ3bSWqGHUG"
     },
     {
-      "asins": ["B07TXBRRGT", "B011F7W3LU", "B08J6F174Z"],
-      "min-price": 400,
-      "max-price": 401,
-      "condition": "Used",
-      "merchant_id": "any"
+      "asins": [
+        "B08L8L9TCZ",
+        "B08L8L9TCZ",
+        "B08L8L9TCZ"
+      ],
+      "offering_id": "gdJmDmBmnIgE1rC%252FnihzMtEfTT4nFdTtTpYSOAofRP%252F%252FApd6XJhHkZFQnITQz7y2bC2xDeIdDBiEe%252FghdYMy440k0pB0e8dWIauKeJ0C34bq3jXJqyXq3g%253D%253D"
     }
   ],
   "amazon_domain": "smile.amazon.com"

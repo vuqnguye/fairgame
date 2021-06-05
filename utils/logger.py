@@ -24,7 +24,7 @@ from utils.version import version
 from logging import handlers
 from types import MethodType
 
-FORMAT = "%(asctime)s|{}|%(levelname)s| %(message)s".format(version)
+FORMAT = "%(asctime)s.%(msecs)d|{}|%(levelname)s| %(message)s".format(version)
 
 #   Level       Numeric value
 #   CRITICAL    50

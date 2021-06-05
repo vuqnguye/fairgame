@@ -114,12 +114,12 @@ class AmazonStoreHandler(BaseStoreHandler):
         future = []
         for idx in range(len(amazon_monitoring.sessions_list)):
             future.append(asyncio.Future())
-            future[idx].add_done_callback(recreate_session_callback)
+            future[idx].add_done_callback(recreate_json_session_callback)
 
         await asyncio.gather(
             amazon_checkout.checkout_worker(queue=queue),
             *[
-                amazon_monitoring.sessions_list[idx].stock_check(queue, future[idx])
+                amazon_monitoring.sessions_list[idx].json_monitor(queue, future[idx])
                 for idx in range(len(amazon_monitoring.sessions_list))
             ],
         )
@@ -146,30 +146,14 @@ class AmazonStoreHandler(BaseStoreHandler):
     def parse_items(self, json_items):
         for json_item in json_items:
             if (
-                "max-price" in json_item
-                and "asins" in json_item
-                and "min-price" in json_item
+                "asins" in json_item
+                and "offering_id" in json_item
             ):
-                max_price = json_item["max-price"]
-                min_price = json_item["min-price"]
-                if type(max_price) is str:
-                    max_price = parse_price(max_price)
-                else:
-                    max_price = Price(max_price, currency=None, amount_text=None)
-                if type(min_price) is str:
-                    min_price = parse_price(min_price)
-                else:
-                    min_price = Price(min_price, currency=None, amount_text=None)
-
-                if "condition" in json_item:
-                    condition = parse_condition(json_item["condition"])
-                else:
-                    condition = AmazonItemCondition.New
-
-                if "merchant_id" in json_item:
-                    merchant_id = json_item["merchant_id"]
-                else:
-                    merchant_id = "any"
+                offering_id = json_item["offering_id"]
+                max_price = 0
+                min_price = 0
+                condition = AmazonItemCondition.New
+                merchant_id = "any"
 
                 # Create new instances of an item for each asin specified
                 asins_collection = json_item["asins"]
@@ -188,6 +172,7 @@ class AmazonStoreHandler(BaseStoreHandler):
                             purchase_delay=json_item.get("purchase_delay", 0),
                             condition=condition,
                             merchant_id=merchant_id,
+                            offering_id=offering_id,
                             furl=furl(
                                 url=f"https://{self.amazon_domain}/gp/aod/ajax?asin={asin}"
                             ),
@@ -195,7 +180,7 @@ class AmazonStoreHandler(BaseStoreHandler):
                     )
             else:
                 log.error(
-                    f"Item isn't fully qualified.  Please include asin, min-price and max-price. {json_item}"
+                    f"Item isn't fully qualified.  Please include asin and offering-id. {json_item}"
                 )
 
 
@@ -209,3 +194,14 @@ def recreate_session_callback(future: asyncio.Future):
         future.add_done_callback(recreate_session_callback)
         asyncio.create_task(session.stock_check(queue=queue, future=future))
         log.debug("New monitor task create")
+
+def recreate_json_session_callback(future: asyncio.Future):
+    #log.debug("Checking json session result")
+    global queue
+    if isinstance(future.result(), AmazonMonitor):
+        log.debug("json session result is a monitoring class, recreating monitor")
+        session: AmazonMonitor = future.result()
+        future = asyncio.Future()
+        future.add_done_callback(recreate_json_session_callback)
+        asyncio.create_task(session.json_monitor(queue=queue, future=future))
+        log.debug("New json monitor task create")
