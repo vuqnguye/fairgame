@@ -232,7 +232,12 @@ class AmazonMonitor(aiohttp.ClientSession):
         log.debug(f"JSON Monitoring Task Started for asin {self.item.id} offer_id {self.item.offering_id} on {self.connector.proxy_url}")
        
         status, cookies = await self.aio_get_cookies("https://www.amazon.com/gp/overlay/display.html")
-
+        iterations=0
+        while status != 200 and iterations < 3:
+            iterations += 1
+            status, cookies = await self.aio_get_cookies("https://www.amazon.com/gp/overlay/display.html")
+            log.warn(f"Retrieving cookies failed for asin {self.item.id} offer_id {self.item.offering_id} on {self.connector.proxy_url}," +  
+            "retrying up to 3 times. Attempts: " + str(iterations))
         cookie_list = SimpleCookie(cookies)
         session_id = cookie_list["session-id"].value
 
